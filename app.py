@@ -4,7 +4,9 @@ import os
 import google.generativeai as genai
 from youtube_transcript_api import YouTubeTranscriptApi
 from PyPDF2 import PdfReader
-
+from gtts import gTTS
+import tempfile
+import re
 # Load environment variables
 load_dotenv()
 
@@ -26,9 +28,36 @@ def extract_transcript_details(youtube_video_url):
         return transcript
     except Exception as e:
         raise e
+
+# Function to convert text to speech using Google Text-to-Speech (gTTS)
+def text_to_speech(text):
+    clean_text = re.sub(r"[^\w\s,.!?']", "", text)  # Clean the text from special characters
+    tts = gTTS(text=clean_text, lang='en')  # Convert text to speech
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')  # Temporary audio file
+    tts.save(temp_file.name)  # Save audio
+    return temp_file.name  # Return file path
+
+
+# Function to generate the summarization prompt based on the selected style
+def get_summarization_prompt(style):
+    if style == "Bullet Points":
+        return "Summarize the video in clear bullet points (max 250 words): "
+    elif style == "Detailed Paragraph":
+        return "Provide a detailed paragraph summarizing the video (max 250 words): "
+    elif style == "Short Summary":
+        return "Summarize the video briefly (max 100 words): "
+    elif style == "Key Highlights":
+        return "Highlight key points and action items from the video (max 150 words): "
+
+# Function to extract the YouTube video ID from various URL formats
+def extract_video_id(youtube_video_url):
+    pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11}).*"
+    match = re.search(pattern, youtube_video_url)
+    if match:
+        return match.group(1)
+    else:
+        raise ValueError("Invalid YouTube URL format")
     
-
-
 # Set page configuration
 st.set_page_config(page_title="AI App Suite", layout="wide")
 
@@ -89,19 +118,31 @@ if nav_option == "🎥 Summarize YouTube Videos":
         video_id = youtube_link.split("=")[1]
         st.image(f"http://img.youtube.com/vi/{video_id}/0.jpg", use_column_width=True)
 
-    if st.button("Get Video Summary"):
-        transcript_text = extract_transcript_details(youtube_link)
+    # Summarization style options
+    summary_style = st.selectbox(
+        "Select Summarization Style", 
+        ["Bullet Points", "Detailed Paragraph", "Short Summary", "Key Highlights"]
+    )
 
-        if transcript_text:
-            prompt = """You are a YouTube video summarizer. Summarize the entire video, 
-                        providing important points within 250 words. Here is the text: """
-            with st.spinner("Generating summary..."):
-                summary = generate_summary(transcript_text, prompt)
-            st.success("Summary Generated!")
-            st.markdown("## Summary:")
-            st.write(summary)
-        else:
-            st.error("Could not fetch transcript. Please check the video link.")
+    if st.button("Get Detailed Notes"):
+        try:
+            transcript_text = extract_transcript_details(youtube_link)
+            if transcript_text:
+                summary_prompt = get_summarization_prompt(summary_style)
+                summary = generate_summary(transcript_text, summary_prompt)
+                st.markdown("## Detailed Notes:")
+                st.write(summary)
+                st.session_state.summary = summary
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+    if 'summary' in st.session_state:
+        st.markdown("### Summary Text:")
+        st.write(st.session_state.summary)
+
+        if st.button("Listen to Summary"):
+            summary_text = st.session_state.summary
+            audio_file_path = text_to_speech(summary_text)
+            st.audio(audio_file_path, format='audio/mp3')
     
     st.title("How to Summarize YouTube Videos?")
     
